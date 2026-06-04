@@ -33,6 +33,10 @@ public class DispatchGUI : Form
     private Process dispatchProcess;
     private Process proxyProcess;
 
+    private NotifyIcon trayIcon;
+    private ContextMenu trayMenu;
+    private bool isTrulyExiting = false;
+
     private string extractedDispatchPath = "dispatch"; // Defaults to system PATH if not embedded
 
     // Modern Dark Theme Palette
@@ -67,6 +71,9 @@ public class DispatchGUI : Form
         Font = new Font("Segoe UI", 9.5f);
         BackColor = bgApp;
         ForeColor = textPrimary;
+
+        // Load the Icon for the Top-Left of the window
+        try { this.Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); } catch { }
 
         // --- Settings Section ---
         Label lblSettingsHeader = new Label { Text = "Proxy Settings", Location = new Point(20, 15), AutoSize = true, Font = new Font("Segoe UI Semibold", 11) };
@@ -133,11 +140,60 @@ public class DispatchGUI : Form
 
         Controls.AddRange(new Control[] { lblSettingsHeader, pnlSettings, lblAdaptersHeader, pnlAdapters, btnStart, btnStop, lblConsoleHeader, pnlConsole });
         
-        FormClosing += (s, e) => Stop(null, null);
+        // --- System Tray Initialization ---
+        InitializeSystemTray();
 
         // Extract embedded dispatch.exe on startup
         PrepareDispatchExe();
         LoadAdapters();
+    }
+
+    private void InitializeSystemTray()
+    {
+        // Create Right-Click Menu
+        trayMenu = new ContextMenu();
+        trayMenu.MenuItems.Add("Show Manager", (s, e) => { ShowForm(); });
+        trayMenu.MenuItems.Add("-"); // Separator line
+        trayMenu.MenuItems.Add("Exit Completely", (s, e) => {
+            isTrulyExiting = true;
+            Application.Exit(); // Triggers the FormClosing event bypass
+        });
+
+        // Initialize the Tray Icon
+        trayIcon = new NotifyIcon();
+        trayIcon.Text = "Dispatch Proxy Manager";
+        try { trayIcon.Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); } 
+        catch { trayIcon.Icon = SystemIcons.Application; } // Failsafe icon
+        
+        trayIcon.ContextMenu = trayMenu;
+        trayIcon.Visible = true;
+
+        // Double click to show
+        trayIcon.DoubleClick += (s, e) => { ShowForm(); };
+
+        // Handle X button behavior
+        FormClosing += (s, e) => {
+            if (e.CloseReason == CloseReason.UserClosing && !isTrulyExiting)
+            {
+                e.Cancel = true; // Stop it from closing
+                this.Hide();     // Hide the window
+                trayIcon.ShowBalloonTip(2000, "Dispatch Proxy Manager", "Running in the background. Right-click the tray icon to exit completely.", ToolTipIcon.Info);
+            }
+            else
+            {
+                // App is TRULY exiting (Right-click -> Exit)
+                Stop(null, null); // Clean up proxies and system registry
+                trayIcon.Visible = false;
+                trayIcon.Dispose();
+            }
+        };
+    }
+
+    private void ShowForm()
+    {
+        this.Show();
+        this.WindowState = FormWindowState.Normal;
+        this.Activate(); // Bring to front
     }
 
     private void PrepareDispatchExe()
@@ -147,7 +203,6 @@ public class DispatchGUI : Form
             Assembly assembly = Assembly.GetExecutingAssembly();
             string resourceName = null;
             
-            // Search for dispatch.exe in the embedded resources
             foreach (string res in assembly.GetManifestResourceNames())
             {
                 if (res.EndsWith("dispatch.exe", StringComparison.OrdinalIgnoreCase))
@@ -161,7 +216,6 @@ public class DispatchGUI : Form
             {
                 string tempPath = Path.Combine(Path.GetTempPath(), "dispatch_embedded_engine.exe");
                 
-                // Write the embedded exe to the temp directory
                 using (Stream stream = assembly.GetManifestResourceStream(resourceName))
                 using (FileStream fileStream = new FileStream(tempPath, FileMode.Create, FileAccess.Write))
                 {
@@ -371,7 +425,7 @@ public class DispatchGUI : Form
         {
             StartInfo = new ProcessStartInfo
             {
-                FileName = extractedDispatchPath, // <--- Using extracted embedded path
+                FileName = extractedDispatchPath,
                 Arguments = args,
                 UseShellExecute = false,
                 RedirectStandardOutput = true,
