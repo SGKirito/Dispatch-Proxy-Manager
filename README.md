@@ -13,9 +13,9 @@ It also orchestrates background proxy clients like **v2rayN**, automatically sta
 - **Multi-Adapter Bonding**: Visually select which network adapters to combine.
 - **IPv4 & IPv6 Support**: Choose between IPv4 only or IPv4/IPv6 dual-stack on a per-adapter basis.
 - **Portable Single Executable**: Directly embeds `dispatch.exe` inside the application so you only need to distribute one file.
-- **Proxy Client Orchestration**: Automatically launches your preferred proxy client (e.g., `v2rayN.exe`) in the background.
+- **Proxy Client Orchestration**: Automatically launches your preferred proxy client (e.g., `v2rayN.exe`).
 - **Ironclad Failsafe**: Gracefully closes proxy clients on exit and forcefully resets the Windows System Proxy via the Registry to prevent "no internet" bugs if the app crashes.
-- **Modern UI**: Sleek dark mode design, 16:9 aspect ratio, custom hover animations, and high-DPI font rendering.
+- **Modern UI**: Sleek dark mode design.
 
 ## 🚀 Usage
 
@@ -30,7 +30,7 @@ It also orchestrates background proxy clients like **v2rayN**, automatically sta
 
 You don't need Visual Studio to compile this! You can build it using the C# compiler built directly into Windows.
 
-1. Ensure `DispatchGUI.cs` and your compiled `dispatch.exe` are in the same folder.
+1. Ensure `DispatchGUI.cs` and `dispatch.exe` are in the same folder.
 2. Open Command Prompt (`cmd.exe`).
 3. Run the following command to compile the GUI and embed `dispatch.exe` inside it:
 
