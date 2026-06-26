@@ -9,6 +9,7 @@ using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Reflection;
 using System.Runtime.InteropServices;
+using System.Threading;
 using System.Windows.Forms;
 using Microsoft.Win32;
 
@@ -38,6 +39,10 @@ public class DispatchGUI : Form
     private bool isTrulyExiting = false;
 
     private string extractedDispatchPath = "dispatch"; // Defaults to system PATH if not embedded
+
+    // Single Instance properties
+    private EventWaitHandle bringToFrontEvent;
+    private Thread bringToFrontThread;
 
     // Modern Dark Theme Palette
     private Color bgApp = Color.FromArgb(32, 32, 32);
@@ -140,6 +145,9 @@ public class DispatchGUI : Form
 
         Controls.AddRange(new Control[] { lblSettingsHeader, pnlSettings, lblAdaptersHeader, pnlAdapters, btnStart, btnStop, lblConsoleHeader, pnlConsole });
         
+        // --- Single Instance IPC Initialization ---
+        InitializeSingleInstanceWatch();
+
         // --- System Tray Initialization ---
         InitializeSystemTray();
 
@@ -149,6 +157,29 @@ public class DispatchGUI : Form
 
         // Load previously saved settings (Must be called AFTER LoadAdapters)
         LoadSettings();
+    }
+
+    private void InitializeSingleInstanceWatch()
+    {
+        bool createdEvent;
+        bringToFrontEvent = new EventWaitHandle(false, EventResetMode.AutoReset, "DispatchProxyManager_BringToFront_Event", out createdEvent);
+        bringToFrontThread = new Thread(() =>
+        {
+            try
+            {
+                while (bringToFrontEvent.WaitOne())
+                {
+                    if (!this.IsDisposed && this.IsHandleCreated)
+                    {
+                        // Invoke on the UI thread to bring it to front
+                        this.Invoke(new Action(() => { ShowForm(); }));
+                    }
+                }
+            }
+            catch { }
+        });
+        bringToFrontThread.IsBackground = true;
+        bringToFrontThread.Start();
     }
 
     private void InitializeSystemTray()
@@ -191,6 +222,12 @@ public class DispatchGUI : Form
                 Stop(null, null); // Clean up proxies and system registry
                 trayIcon.Visible = false;
                 trayIcon.Dispose();
+                
+                // Cleanup single-instance lock
+                if (bringToFrontEvent != null)
+                {
+                    try { bringToFrontEvent.Close(); } catch { }
+                }
             }
         };
     }
@@ -679,9 +716,27 @@ public class DispatchGUI : Form
     public static void Main()
     {
         SetProcessDPIAware();
-        
-        Application.EnableVisualStyles();
-        Application.SetCompatibleTextRenderingDefault(false);
-        Application.Run(new DispatchGUI());
+
+        bool createdNew;
+        // Application-wide Mutex. The "true" argument means it tries to take ownership of the Mutex if it's new.
+        using (Mutex mutex = new Mutex(true, "DispatchProxyManager_SingleInstance_Mutex", out createdNew))
+        {
+            if (!createdNew)
+            {
+                // App is already running! Tell the first instance to bring itself out of the background.
+                try
+                {
+                    EventWaitHandle bringToFront = EventWaitHandle.OpenExisting("DispatchProxyManager_BringToFront_Event");
+                    bringToFront.Set(); // Send signal to existing app
+                }
+                catch { }
+                return; // Immediately quit THIS second app so no new Tray Icon is made
+            }
+
+            // Normal Startup
+            Application.EnableVisualStyles();
+            Application.SetCompatibleTextRenderingDefault(false);
+            Application.Run(new DispatchGUI());
+        }
     }
 }
