@@ -146,6 +146,9 @@ public class DispatchGUI : Form
         // Extract embedded dispatch.exe on startup
         PrepareDispatchExe();
         LoadAdapters();
+
+        // Load previously saved settings (Must be called AFTER LoadAdapters)
+        LoadSettings();
     }
 
     private void InitializeSystemTray()
@@ -156,6 +159,7 @@ public class DispatchGUI : Form
         trayMenu.MenuItems.Add("-"); // Separator line
         trayMenu.MenuItems.Add("Exit Completely", (s, e) => {
             isTrulyExiting = true;
+            SaveSettings();
             Application.Exit(); // Triggers the FormClosing event bypass
         });
 
@@ -173,6 +177,8 @@ public class DispatchGUI : Form
 
         // Handle X button behavior
         FormClosing += (s, e) => {
+            SaveSettings(); // Save user configurations upon closing
+
             if (e.CloseReason == CloseReason.UserClosing && !isTrulyExiting)
             {
                 e.Cancel = true; // Stop it from closing
@@ -417,6 +423,9 @@ public class DispatchGUI : Form
             Log("[-] No valid IPs resolved. Please select an adapter and check its IP mode availability.");
             return;
         }
+        
+        // Save Settings successfully before launching
+        SaveSettings(); 
 
         string addrs = string.Join(" ", selectedIps.ToArray());
         string args = string.Format("start --ip {0} --port {1} {2}", txtIp.Text.Trim(), txtPort.Text.Trim(), addrs).Trim();
@@ -578,6 +587,92 @@ public class DispatchGUI : Form
         txtConsole.SelectionColor = c;
         txtConsole.AppendText(text + Environment.NewLine);
         txtConsole.ScrollToCaret();
+    }
+
+    // ==========================================
+    // DATA PERSISTENCE (SETTINGS)
+    // ==========================================
+
+    private void SaveSettings()
+    {
+        try
+        {
+            using (RegistryKey key = Registry.CurrentUser.CreateSubKey(@"Software\DispatchProxyManager"))
+            {
+                if (key != null)
+                {
+                    key.SetValue("ListenIP", txtIp.Text);
+                    key.SetValue("ListenPort", txtPort.Text);
+                    key.SetValue("ProxyPath", txtProxy.Text);
+
+                    List<string> adapterSettings = new List<string>();
+                    foreach (DataGridViewRow row in dgvAdapters.Rows)
+                    {
+                        string name = row.Cells["Adapter"].Value.ToString();
+                        bool use = Convert.ToBoolean(row.Cells["Use"].Value);
+                        string mode = row.Cells["Mode"].Value != null ? row.Cells["Mode"].Value.ToString() : "IPv4 Only";
+                        
+                        // Structure: AdapterName==True/False==IPv4 Only
+                        adapterSettings.Add(string.Format("{0}=={1}=={2}", name, use, mode));
+                    }
+                    
+                    key.SetValue("Adapters", string.Join("||", adapterSettings.ToArray()));
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Log(string.Format("[-] Failed to save settings: {0}", ex.Message));
+        }
+    }
+
+    private void LoadSettings()
+    {
+        try
+        {
+            using (RegistryKey key = Registry.CurrentUser.OpenSubKey(@"Software\DispatchProxyManager"))
+            {
+                if (key != null)
+                {
+                    txtIp.Text = key.GetValue("ListenIP", "127.0.0.1").ToString();
+                    txtPort.Text = key.GetValue("ListenPort", "1080").ToString();
+                    txtProxy.Text = key.GetValue("ProxyPath", "").ToString();
+
+                    string adaptersRaw = key.GetValue("Adapters", "").ToString();
+                    if (!string.IsNullOrEmpty(adaptersRaw))
+                    {
+                        string[] adapterEntries = adaptersRaw.Split(new string[] { "||" }, StringSplitOptions.RemoveEmptyEntries);
+                        Dictionary<string, string[]> savedAdapters = new Dictionary<string, string[]>();
+                        
+                        foreach (string entry in adapterEntries)
+                        {
+                            string[] parts = entry.Split(new string[] { "==" }, StringSplitOptions.None);
+                            if (parts.Length == 3)
+                            {
+                                savedAdapters[parts[0]] = new string[] { parts[1], parts[2] }; // [0] = Use, [1] = Mode
+                            }
+                        }
+
+                        // Apply the loaded settings to currently available physical adapters
+                        foreach (DataGridViewRow row in dgvAdapters.Rows)
+                        {
+                            string name = row.Cells["Adapter"].Value.ToString();
+                            if (savedAdapters.ContainsKey(name))
+                            {
+                                bool use = false;
+                                bool.TryParse(savedAdapters[name][0], out use);
+                                row.Cells["Use"].Value = use;
+                                row.Cells["Mode"].Value = savedAdapters[name][1];
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Log(string.Format("[-] Failed to load settings: {0}", ex.Message));
+        }
     }
 
     [STAThread]
